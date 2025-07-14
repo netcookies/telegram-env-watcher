@@ -1,0 +1,14 @@
+{
+  "telegram": {
+    "api_id": 22172292,
+    "api_hash": "xxxxxxxxxxxxx",
+    "bot_token": "",
+    "phone": "+138003800"
+  },
+  "ql": {
+    "base_url": "https://your_url:5700",
+    "client_id": "xxxx",
+    "client_secret": "xxxx"
+  },
+  "group_id": -12345678
+}
