@@ -16,8 +16,6 @@ WORKDIR /app
 
 COPY --from=builder /app/telegram-env-watcher /usr/local/bin/
 
-COPY config.json /app/config.json
-
 CMD ["telegram-env-watcher"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
