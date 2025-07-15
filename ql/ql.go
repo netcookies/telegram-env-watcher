@@ -25,6 +25,11 @@ type tokenResp struct {
 	} `json:"data"`
 }
 
+type ScriptInfo struct {
+	Filename string `json:"filename"`
+	Path     string `json:"path"`
+}
+
 func GetQLToken(cfg *utils.Config) (string, error) {
 	url := fmt.Sprintf("%s/open/auth/token?client_id=%s&client_secret=%s",
 		cfg.QL.BaseURL, cfg.QL.ClientID, cfg.QL.ClientSecret)
@@ -123,8 +128,14 @@ func RunScriptContent(cfg *utils.Config, filename, path, content string) error {
 
 	payload := map[string]string{
 		"filename": filename,
-		"path":     path,
-		"content":  content,
+	}
+
+	if path != "" {
+		payload["path"] = path
+	}
+
+	if content != "" {
+		payload["content"] = content
 	}
 
 	data, err := json.Marshal(payload)
@@ -162,6 +173,10 @@ func RunScriptContent(cfg *utils.Config, filename, path, content string) error {
 	log.Printf("✅ 青龙脚本运行成功\n")
 	return nil
 }
+  
+func RunScriptFile(cfg *utils.Config, filename, path string) error {
+	return RunScriptContent(cfg, filename, path, "")
+}
 
 func RenderTemplate(tpl string, vars map[string]string) string {
 	for k, v := range vars {
@@ -182,3 +197,41 @@ func SendNotifyViaQL(cfg *utils.Config, title string, body string) error {
 	)
 }
 
+func SearchScripts(cfg *utils.Config, keyword string) ([]ScriptInfo, error) {
+	token, err := GetQLToken(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("%s/open/scripts?searchValue=%s", cfg.QL.BaseURL, keyword)
+	if cfg.Debug {
+		log.Printf("🔎 搜索脚本: %s\n", url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return nil, fmt.Errorf("❌ 搜索脚本失败：%s", string(body))
+	}
+
+	var result struct {
+		Data []ScriptInfo `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Data, nil
+}
