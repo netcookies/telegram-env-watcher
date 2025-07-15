@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"strings"
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
@@ -102,3 +103,10 @@ func PeerIDFromPeer(p tg.PeerClass) int64 {
 	}
 }
 
+func ExtractPrefix(key string) string {
+	lastUnderscore := strings.LastIndex(key, "_")
+	if lastUnderscore == -1 {
+		return key // 没有下划线就返回原始 key
+	}
+	return key[:lastUnderscore]
+}
