@@ -10,5 +10,13 @@
     "client_id": "xxxx",
     "client_secret": "xxxx"
   },
-  "group_id": -12345678
+  "listen": {
+    "channels": [
+      { "username": "channel1" },
+      { "username": "group1"}
+    ],
+    "users": [
+      { "username": "somebody1" }
+    ]
+  }
 }

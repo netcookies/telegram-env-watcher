@@ -63,20 +63,29 @@ func UpdateQLEnv(cfg *utils.Config, name, value string) error {
 	body, _ := ioutil.ReadAll(resp.Body)
 	_ = json.Unmarshal(body, &search)
 
-	var payload Env
-	method := "POST"
-	url := fmt.Sprintf("%s/open/envs", cfg.QL.BaseURL)
-
+  var (
+      data   []byte
+      method string
+      url    = fmt.Sprintf("%s/open/envs", cfg.QL.BaseURL)
+  )
 	if len(search.Data) > 0 {
-		// update
-		payload = Env{ID: search.Data[0].ID, Name: name, Value: value}
-		method = "PUT"
+			// 更新：单个对象
+			payload := Env{ID: search.Data[0].ID, Name: name, Value: value}
+			data, err = json.Marshal(payload)
+			if err != nil {
+					return err
+			}
+			method = "PUT"
 	} else {
-		// new
-		payload = Env{Name: name, Value: value}
+			// 新增：数组形式
+			payload := []Env{{Name: name, Value: value}}
+			data, err = json.Marshal(payload)
+			if err != nil {
+					return err
+			}
+			method = "POST"
 	}
 	
-	data, _ := json.Marshal(payload)
 	log.Printf("🔗 请求地址: %s\n", url)
 	log.Printf("📦 请求方法: %s\n", method)
 	log.Printf("🔐 Authorization: Bearer %s\n", token)

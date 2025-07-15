@@ -17,7 +17,6 @@ import (
 	"telegram-env-watcher/watcher"
 )
 
-// 添加在 main.go 顶部 import 之后
 type handlerWrapper struct {
 	fn func(ctx context.Context, u tg.UpdatesClass) error
 }
@@ -39,7 +38,7 @@ func main() {
 
 	client := telegram.NewClient(cfg.Telegram.APIID, cfg.Telegram.APIHash, telegram.Options{
 		SessionStorage: &session.FileStorage{Path: "session.json"},
-		UpdateHandler: handlerWrapper{fn: gaps.Handle},
+		UpdateHandler:  handlerWrapper{fn: gaps.Handle},
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -58,10 +57,35 @@ func main() {
 			return err
 		}
 
-		log.Println("✅ Telegram 登录成功，开始监听消息...")
+		log.Println("✅ Telegram 登录成功")
+
+		// 解析监听目标（动态获取 AccessHash）
+		var targets watcher.WatchTargets
+		for _, ch := range cfg.Listen.Channels {
+			inputCh, _, title, about, err := utils.ResolveTarget(ctx, client, ch.Username)
+			if err != nil {
+				log.Printf("❌ 解析频道 @%s 失败: %v", ch.Username, err)
+				continue
+			}
+			log.Printf("📢 监听频道: %s\n简介: %s\n", title, about)
+			targets.Channels = append(targets.Channels, inputCh)
+		}
+		for _, us := range cfg.Listen.Users {
+			_, inputUser, title, about, err := utils.ResolveTarget(ctx, client, us.Username)
+			if err != nil {
+				log.Printf("❌ 解析用户 @%s 失败: %v", us.Username, err)
+				continue
+			}
+			log.Printf("💬 监听用户: %s\n简介: %s\n", title, about)
+			targets.Users = append(targets.Users, inputUser)
+		}
+
+		if len(targets.Channels) == 0 && len(targets.Users) == 0 {
+			log.Fatal("❌ 没有可用的监听目标，程序退出")
+		}
 
 		// 注册回调处理器
-		watcher.RegisterHandlers(&disp, client, cfg)
+		watcher.RegisterHandlers(&disp, client, cfg, &targets)
 
 		user, err := client.Self(ctx)
 		if err != nil {
@@ -71,6 +95,7 @@ func main() {
 		log.Printf("🚀 Telegram 已登录，用户ID: %d\n", user.ID)
 		return gaps.Run(ctx, client.API(), user.ID, updates.AuthOptions{})
 	})
+
 	if err != nil {
 		log.Fatalf("❌ 运行失败: %v", err)
 	}
