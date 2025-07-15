@@ -5,6 +5,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"fmt"
 
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/telegram"
@@ -47,7 +48,6 @@ func RegisterHandlers(d *tg.UpdateDispatcher, client *telegram.Client, cfg *util
 		}
 		id := utils.PeerIDFromPeer(msg.PeerID)
 		if !containsUser(targets.Users, id) {
-			log.Printf("收到群消息，PeerID 类型: %T, 内容: %s", msg.PeerID, msg.Message)
 			return nil
 		}
 		log.Printf("💬 来自群组 [%s] by [%s]\n内容: %s\n",
@@ -106,8 +106,10 @@ func handleMessage(ctx context.Context, client *telegram.Client, cfg *utils.Conf
 		log.Printf("🔍 检测到变量: %s = %s\n", key, value)
 		if err := ql.UpdateQLEnv(cfg, key, value); err != nil {
 			log.Printf("❌ 更新青龙失败: %v\n", err)
+			ql.SendNotifyViaQL(cfg, "❌ 更新青龙失败", err.Error())
 		} else {
 			log.Printf("✅ 青龙环境变量 %s 更新成功", key)
+			ql.SendNotifyViaQL(cfg, fmt.Sprintf("✅ 青龙环境变量 %s 更新成功", key), value)
 		}
 	}
 	return nil

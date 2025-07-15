@@ -1,4 +1,5 @@
 {
+  "debug": false,
   "telegram": {
     "api_id": 22172292,
     "api_hash": "xxxxxxxxxxxxx",
@@ -8,7 +9,12 @@
   "ql": {
     "base_url": "https://your_url:5700",
     "client_id": "xxxx",
-    "client_secret": "xxxx"
+    "client_secret": "xxxx",
+    "notify": {
+      "scriptfile": "callSendNotify.js",
+      "scriptPath": "shufflewzc_faker2_main",
+      "template": "!(async () => { await require(\"./sendNotify\").sendNotify(\"{{title}}\", `{{body}}`); await process.exit(0); })()"
+    }
   },
   "listen": {
     "channels": [

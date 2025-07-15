@@ -16,6 +16,7 @@ type ChannelTarget struct {
 }
 
 type Config struct {
+	Debug bool `json:"debug"`
 	Telegram struct {
 		APIID   int    `json:"api_id"`
 		APIHash string `json:"api_hash"`
@@ -26,6 +27,12 @@ type Config struct {
 		BaseURL      string `json:"base_url"`
 		ClientID     string `json:"client_id"`
 		ClientSecret string `json:"client_secret"`
+
+		Notify struct {
+			ScriptFile string `json:"scriptfile"`
+			ScriptPath string `json:"scriptpath"`
+			Template   string `json:"template"`
+		} `json:"notify"`
 	} `json:"ql"`
 
 	Listen struct {
