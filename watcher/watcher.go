@@ -110,6 +110,21 @@ func handleMessage(ctx context.Context, client *telegram.Client, cfg *utils.Conf
 		} else {
 			log.Printf("✅ 青龙环境变量 %s 更新成功", key)
 			ql.SendNotifyViaQL(cfg, fmt.Sprintf("✅ 青龙环境变量 %s 更新成功", key), value)
+
+			prefix := utils.ExtractPrefix(key)
+			scripts, err := ql.SearchScripts(cfg, prefix)
+			if err != nil {
+				log.Printf("⚠️ 搜索脚本失败: %v", err)
+				return err
+			}
+			for _, script := range scripts {
+				err := ql.RunScriptFile(cfg, script.Filename, script.Path)
+				if err != nil {
+					log.Printf("❌ 脚本运行失败: %s/%s - %v", script.Path, script.Filename, err)
+				} else {
+					log.Printf("✅ 已运行脚本: %s/%s", script.Path, script.Filename)
+				}
+			}
 		}
 	}
 	return nil
