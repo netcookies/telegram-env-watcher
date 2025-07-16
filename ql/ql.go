@@ -63,69 +63,92 @@ func GetQLToken(cfg *utils.Config) (string, error) {
 }
 
 func UpdateQLEnv(cfg *utils.Config, name, value string) error {
-	token, err := GetQLToken(cfg)
-	if err != nil {
-		return err
-	}
+	// 定义一个内部函数，单次更新逻辑
+	updateSingle := func(name, value string) error {
+		token, err := GetQLToken(cfg)
+		if err != nil {
+			return err
+		}
 
-	searchURL := fmt.Sprintf("%s/open/envs?searchValue=%s", cfg.QL.BaseURL, name)
-	req, _ := http.NewRequest("GET", searchURL, nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	var search struct {
-		Data []Env `json:"data"`
-	}
-	body, _ := ioutil.ReadAll(resp.Body)
-	_ = json.Unmarshal(body, &search)
+		searchURL := fmt.Sprintf("%s/open/envs?searchValue=%s", cfg.QL.BaseURL, name)
+		req, _ := http.NewRequest("GET", searchURL, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
 
-  var (
-      data   []byte
-      method string
-      url    = fmt.Sprintf("%s/open/envs", cfg.QL.BaseURL)
-  )
-	if len(search.Data) > 0 {
+		var search struct {
+			Data []Env `json:"data"`
+		}
+		body, _ := ioutil.ReadAll(resp.Body)
+		_ = json.Unmarshal(body, &search)
+
+		var (
+			data   []byte
+			method string
+			url    = fmt.Sprintf("%s/open/envs", cfg.QL.BaseURL)
+		)
+		if len(search.Data) > 0 {
 			// 更新：单个对象
 			payload := Env{ID: search.Data[0].ID, Name: name, Value: value}
 			data, err = json.Marshal(payload)
 			if err != nil {
-					return err
+				return err
 			}
 			method = "PUT"
-	} else {
+		} else {
 			// 新增：数组形式
 			payload := []Env{{Name: name, Value: value}}
 			data, err = json.Marshal(payload)
 			if err != nil {
-					return err
+				return err
 			}
 			method = "POST"
-	}
-	
-	if cfg.Debug {
-		log.Printf("🔗 请求地址: %s\n", url)
-		log.Printf("📦 请求方法: %s\n", method)
-		log.Printf("🔐 Authorization: Bearer %s\n", token)
-		log.Printf("📝 请求 Body: %s\n", string(data))
-	}
-	req, _ = http.NewRequest(method, url, bytes.NewBuffer(data))
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
+		}
 
-	resp, err = http.DefaultClient.Do(req)
+		if cfg.Debug {
+			log.Printf("🔗 请求地址: %s\n", url)
+			log.Printf("📦 请求方法: %s\n", method)
+			log.Printf("🔐 Authorization: Bearer %s\n", token)
+			log.Printf("📝 请求 Body: %s\n", string(data))
+		}
+		req, _ = http.NewRequest(method, url, bytes.NewBuffer(data))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json;charset=UTF-8")
+
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 300 {
+			b, _ := ioutil.ReadAll(resp.Body)
+			log.Printf("❌ 青龙响应失败：%s", string(b))
+			return fmt.Errorf("青龙响应码: %d", resp.StatusCode)
+		}
+		return nil
+	}
+
+	// 调用两次逻辑
+	err := updateSingle(name, value)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode >= 300 {
-		b, _ := ioutil.ReadAll(resp.Body)
-		log.Printf("❌ 青龙响应失败：%s", string(b))
-		return fmt.Errorf("青龙响应码: %d", resp.StatusCode)
+	// 如果包含 lzkj，尝试更新替换后的变量
+	if strings.Contains(name, "lzkj") {
+		nameV2 := strings.Replace(name, "lzkj", "lzkj_v2", 1)
+		if nameV2 != name {
+			err = updateSingle(nameV2, value)
+			if err != nil {
+				return err
+			}
+		}
 	}
+
 	return nil
 }
 
