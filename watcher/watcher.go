@@ -112,17 +112,21 @@ func handleMessage(ctx context.Context, client *telegram.Client, cfg *utils.Conf
 			ql.SendNotifyViaQL(cfg, fmt.Sprintf("✅ 青龙环境变量 %s 更新成功", key), value)
 
 			prefix := utils.ExtractPrefix(key)
-			scripts, err := ql.SearchScripts(cfg, prefix)
+			log.Printf("🔍 提取的前缀: %s", prefix)
+
+			scripts, err := ql.SearchCrons(cfg, prefix)
 			if err != nil {
-				log.Printf("⚠️ 搜索脚本失败: %v", err)
+				log.Printf("⚠️ 搜索脚本失败 (前缀: %s): %v", prefix, err)
 				return err
 			}
-			for _, script := range scripts {
-				err := ql.RunScriptFile(cfg, script.Filename, script.Path)
+
+			if len(scripts) == 0 {
+				log.Println("⚠️ 未找到任何匹配的脚本")
+			} else {
+				log.Printf("📜 找到 %d 个匹配脚本", len(scripts))
+				err = ql.RunCrons(cfg, scripts)
 				if err != nil {
-					log.Printf("❌ 脚本运行失败: %s/%s - %v", script.Path, script.Filename, err)
-				} else {
-					log.Printf("✅ 已运行脚本: %s/%s", script.Path, script.Filename)
+					log.Printf("❌ 脚本运行失败: %v",  err)
 				}
 			}
 		}

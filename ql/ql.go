@@ -26,8 +26,9 @@ type tokenResp struct {
 }
 
 type ScriptInfo struct {
-	Filename string `json:"filename"`
-	Path     string `json:"path"`
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	Command string `json:"command"`
 }
 
 func GetQLToken(cfg *utils.Config) (string, error) {
@@ -173,10 +174,6 @@ func RunScriptContent(cfg *utils.Config, filename, path, content string) error {
 	log.Printf("✅ 青龙脚本运行成功\n")
 	return nil
 }
-  
-func RunScriptFile(cfg *utils.Config, filename, path string) error {
-	return RunScriptContent(cfg, filename, path, "")
-}
 
 func RenderTemplate(tpl string, vars map[string]string) string {
 	for k, v := range vars {
@@ -197,13 +194,13 @@ func SendNotifyViaQL(cfg *utils.Config, title string, body string) error {
 	)
 }
 
-func SearchScripts(cfg *utils.Config, keyword string) ([]ScriptInfo, error) {
+func SearchCrons(cfg *utils.Config, keyword string) ([]ScriptInfo, error) {
 	token, err := GetQLToken(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	url := fmt.Sprintf("%s/open/scripts?searchValue=%s", cfg.QL.BaseURL, keyword)
+	url := fmt.Sprintf("%s/open/crons?searchValue=%s", cfg.QL.BaseURL, keyword)
 	if cfg.Debug {
 		log.Printf("🔎 搜索脚本: %s\n", url)
 	}
@@ -225,13 +222,75 @@ func SearchScripts(cfg *utils.Config, keyword string) ([]ScriptInfo, error) {
 		return nil, fmt.Errorf("❌ 搜索脚本失败：%s", string(body))
 	}
 
+	// 正确嵌套结构
 	var result struct {
-		Data []ScriptInfo `json:"data"`
+		Code int `json:"code"`
+		Data struct {
+			Data  []ScriptInfo `json:"data"`
+			Total int          `json:"total"`
+		} `json:"data"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
-	return result.Data, nil
+	if cfg.Debug {
+		log.Printf("📦 获取到 %d 个脚本", len(result.Data.Data))
+		for _, s := range result.Data.Data {
+			log.Printf("🔧 脚本: id=%d name=%s command=%s", s.ID, s.Name, s.Command)
+		}
+	}
+
+	return result.Data.Data, nil
 }
+  
+func RunCrons(cfg *utils.Config, scripts []ScriptInfo) error {
+	token, err := GetQLToken(cfg)
+	if err != nil {
+		return err
+	}
+
+	var ids []int
+	log.Printf("🚀 即将执行脚本 (%d 个):", len(scripts))
+	for _, script := range scripts {
+		ids = append(ids, script.ID)
+		log.Printf("  - %s (ID: %d) - %s", script.Name, script.ID, script.Command)
+	}
+
+	bodyBytes, err := json.Marshal(ids)
+	if err != nil {
+		return fmt.Errorf("❌ 编码 ID 列表失败: %v", err)
+	}
+
+	url := fmt.Sprintf("%s/open/crons/run", cfg.QL.BaseURL)
+	if cfg.Debug {
+		log.Printf("📤 PUT 请求 URL: %s", url)
+		log.Printf("📤 PUT 请求体 JSON: %s", string(bodyBytes))
+	}
+
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := ioutil.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("❌ 执行失败，状态码: %d，响应: %s", resp.StatusCode, string(respBody))
+	}
+
+	if cfg.Debug {
+		log.Printf("✅ 执行成功: %s", string(respBody))
+	}
+
+	return nil
+}
+
