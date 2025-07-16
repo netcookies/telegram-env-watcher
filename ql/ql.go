@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"os"
+	"time"
 
 	"telegram-env-watcher/utils"
 )
@@ -29,6 +31,14 @@ type ScriptInfo struct {
 	ID      int    `json:"id"`
 	Name    string `json:"name"`
 	Command string `json:"command"`
+}
+
+var notifyCacheFile = "./ql_notify_buffer.json"
+
+type NotifyEntry struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	Time  int64  `json:"time"` // Unix 时间戳
 }
 
 func GetQLToken(cfg *utils.Config) (string, error) {
@@ -182,7 +192,7 @@ func RenderTemplate(tpl string, vars map[string]string) string {
 	return tpl
 }
 
-func SendNotifyViaQL(cfg *utils.Config, title string, body string) error {
+func SendNotifyNowViaQL(cfg *utils.Config, title string, body string) error {
 	content := RenderTemplate(cfg.QL.Notify.Template, map[string]string{
 		"title": title,
 		"body":  body,
@@ -292,5 +302,87 @@ func RunCrons(cfg *utils.Config, scripts []ScriptInfo) error {
 	}
 
 	return nil
+}
+
+func SendNotifyViaQL(cfg *utils.Config, title string, body string) error {
+	entry := NotifyEntry{
+		Title: title,
+		Body:  body,
+		Time:  time.Now().Unix(),
+	}
+
+	// 加载旧数据
+	var buffer []NotifyEntry
+	if data, err := os.ReadFile(notifyCacheFile); err == nil {
+		_ = json.Unmarshal(data, &buffer)
+	}
+
+	buffer = append(buffer, entry)
+
+	// 保存到文件
+	data, _ := json.MarshalIndent(buffer, "", "  ")
+	return os.WriteFile(notifyCacheFile, data, 0644)
+}
+
+func StartNotifyScheduler(cfg *utils.Config) {
+	go func() {
+		for {
+			now := time.Now()
+			// 计算下一个整点
+			next := now.Truncate(time.Hour).Add(time.Hour)
+			duration := time.Until(next)
+			log.Printf("⏳ 等待到下一个整点: %s", next.Format("15:04:05"))
+			time.Sleep(duration)
+
+			if err := FlushNotifyBuffer(cfg); err != nil {
+				log.Printf("❌ 通知缓冲发送失败: %v", err)
+			}
+		}
+	}()
+}
+
+func FlushNotifyBuffer(cfg *utils.Config) error {
+	if _, err := os.Stat(notifyCacheFile); os.IsNotExist(err) {
+		log.Println("📭 无需发送通知（无缓存文件）")
+		return nil
+	}
+
+	data, err := os.ReadFile(notifyCacheFile)
+	if err != nil {
+		return fmt.Errorf("读取通知缓存失败: %v", err)
+	}
+
+	var entries []NotifyEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return fmt.Errorf("解析通知缓存失败: %v", err)
+	}
+
+	if len(entries) == 0 {
+		log.Println("📭 通知缓存为空，无需发送")
+		return nil
+	}
+
+	// 构造合并消息
+	var body strings.Builder
+	for _, e := range entries {
+		body.WriteString(fmt.Sprintf("🕒 %s\n📌 %s\n%s\n\n",
+			time.Unix(e.Time, 0).Format("15:04:05"),
+			e.Title, e.Body))
+	}
+
+	// 发送一次合并消息
+	log.Println("📨 整点发送合并通知")
+	err = RunScriptContent(cfg, cfg.QL.Notify.ScriptFile, cfg.QL.Notify.ScriptPath,
+		RenderTemplate(cfg.QL.Notify.Template, map[string]string{
+			"title": "📥 每小时通知汇总",
+			"body":  body.String(),
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
+	// 清空缓存
+	return os.WriteFile(notifyCacheFile, []byte("[]"), 0644)
 }
 

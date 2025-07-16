@@ -95,42 +95,87 @@ func handleMessage(ctx context.Context, client *telegram.Client, cfg *utils.Conf
 	if msg == nil || msg.Message == "" {
 		return nil
 	}
+
 	matches := exportRegexp.FindAllStringSubmatch(msg.Message, -1)
 	if len(matches) == 0 {
 		log.Println("❌ 消息中未匹配到任何 export 变量")
 		return nil
 	}
+
+	var updatedVars []string
+	var runScripts []string
+	var notifyErrs []string
+
 	for _, match := range matches {
 		key := strings.TrimSpace(match[1])
 		value := strings.TrimSpace(match[2])
 		log.Printf("🔍 检测到变量: %s = %s\n", key, value)
+
 		if err := ql.UpdateQLEnv(cfg, key, value); err != nil {
-			log.Printf("❌ 更新青龙失败: %v\n", err)
-			ql.SendNotifyViaQL(cfg, "❌ 更新青龙失败", err.Error())
-		} else {
-			log.Printf("✅ 青龙环境变量 %s 更新成功", key)
-			ql.SendNotifyViaQL(cfg, fmt.Sprintf("✅ 青龙环境变量 %s 更新成功", key), value)
+			errMsg := fmt.Sprintf("❌ 更新 %s 失败: %v", key, err)
+			log.Println(errMsg)
+			notifyErrs = append(notifyErrs, errMsg)
+			continue
+		}
 
-			prefix := utils.ExtractPrefix(key)
-			log.Printf("🔍 提取的前缀: %s", prefix)
+		log.Printf("✅ 青龙环境变量 %s 更新成功", key)
+		updatedVars = append(updatedVars, fmt.Sprintf("%s = %s", key, value))
 
-			scripts, err := ql.SearchCrons(cfg, prefix)
-			if err != nil {
-				log.Printf("⚠️ 搜索脚本失败 (前缀: %s): %v", prefix, err)
-				return err
-			}
+		prefix := utils.ExtractPrefix(key)
+		log.Printf("🔍 提取的前缀: %s", prefix)
 
-			if len(scripts) == 0 {
-				log.Println("⚠️ 未找到任何匹配的脚本")
-			} else {
-				log.Printf("📜 找到 %d 个匹配脚本", len(scripts))
-				err = ql.RunCrons(cfg, scripts)
-				if err != nil {
-					log.Printf("❌ 脚本运行失败: %v",  err)
-				}
-			}
+		scripts, err := ql.SearchCrons(cfg, prefix)
+		if err != nil {
+			log.Printf("⚠️ 搜索脚本失败 (前缀: %s): %v", prefix, err)
+			notifyErrs = append(notifyErrs, fmt.Sprintf("搜索脚本失败（%s）: %v", prefix, err))
+			continue
+		}
+
+		if len(scripts) == 0 {
+			log.Printf("⚠️ 未找到任何匹配脚本（前缀: %s）", prefix)
+			continue
+		}
+
+		log.Printf("📜 找到 %d 个匹配脚本", len(scripts))
+		for _, s := range scripts {
+			runScripts = append(runScripts, fmt.Sprintf("%s (ID: %d)", s.Name, s.ID))
+		}
+
+		if err := ql.RunCrons(cfg, scripts); err != nil {
+			log.Printf("❌ 脚本运行失败: %v", err)
+			notifyErrs = append(notifyErrs, fmt.Sprintf("脚本运行失败（前缀: %s）: %v", prefix, err))
 		}
 	}
+
+	// 📣 构造最终通知消息
+	var notifyMsg string
+	if len(updatedVars) > 0 {
+		notifyMsg += "✅ 已更新以下环境变量:\n"
+		for _, kv := range updatedVars {
+			notifyMsg += "- " + kv + "\n"
+		}
+	}
+
+	if len(runScripts) > 0 {
+		notifyMsg += "\n🚀 已执行以下脚本:\n"
+		for _, name := range runScripts {
+			notifyMsg += "- " + name + "\n"
+		}
+	}
+
+	if len(notifyErrs) > 0 {
+		notifyMsg += "\n❗发生以下错误:\n"
+		for _, err := range notifyErrs {
+			notifyMsg += "- " + err + "\n"
+		}
+	}
+
+	if notifyMsg == "" {
+		notifyMsg = "⚠️ 未检测到变量或脚本更新"
+	}
+
+	// ✅ 最终统一发送通知
+	ql.SendNotifyViaQL(cfg, "📥 青龙处理结果通知", notifyMsg)
 	return nil
 }
 

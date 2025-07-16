@@ -12,6 +12,7 @@ import (
 	"github.com/gotd/td/telegram/updates"
 	"github.com/gotd/td/tg"
 
+	"telegram-env-watcher/ql"
 	"telegram-env-watcher/auth"
 	"telegram-env-watcher/utils"
 	"telegram-env-watcher/watcher"
@@ -93,6 +94,13 @@ func main() {
 		}
 
 		log.Printf("🚀 Telegram 已登录，用户ID: %d\n", user.ID)
+		// ✅ 启动时立即 Flush 上次未发出的通知
+		if err := ql.FlushNotifyBuffer(cfg); err != nil {
+			log.Printf("⚠️ 启动时通知缓存发送失败: %v", err)
+		}
+
+		// ✅ 启动定时器，等待整点执行
+		ql.StartNotifyScheduler(cfg)
 		return gaps.Run(ctx, client.API(), user.ID, updates.AuthOptions{})
 	})
 
