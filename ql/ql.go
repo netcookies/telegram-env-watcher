@@ -210,51 +210,71 @@ func SearchCrons(cfg *utils.Config, keyword string) ([]ScriptInfo, error) {
 		return nil, err
 	}
 
-	url := fmt.Sprintf("%s/open/crons?searchValue=%s", cfg.QL.BaseURL, keyword)
-	if cfg.Debug {
-		log.Printf("🔎 搜索脚本: %s\n", url)
+	// 构建搜索关键字列表（包含扩展规则）
+	keywords := []string{keyword}
+	if strings.Contains(keyword, "lzkj") {
+		v2 := strings.Replace(keyword, "lzkj", "lzkj_v2", 1)
+		keywords = append(keywords, v2)
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	var allScripts []ScriptInfo
+	seen := make(map[int]bool) // 避免重复 ID
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	for _, kw := range keywords {
+		url := fmt.Sprintf("%s/open/crons?searchValue=%s", cfg.QL.BaseURL, kw)
+		if cfg.Debug {
+			log.Printf("🔎 搜索脚本: %s", url)
+		}
 
-	if resp.StatusCode >= 300 {
-		body, _ := ioutil.ReadAll(resp.Body)
-		return nil, fmt.Errorf("❌ 搜索脚本失败：%s", string(body))
-	}
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
 
-	// 正确嵌套结构
-	var result struct {
-		Code int `json:"code"`
-		Data struct {
-			Data  []ScriptInfo `json:"data"`
-			Total int          `json:"total"`
-		} `json:"data"`
-	}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
+		if resp.StatusCode >= 300 {
+			body, _ := ioutil.ReadAll(resp.Body)
+			log.Printf("❌ 搜索失败（%s）：%s", kw, string(body))
+			continue // 不返回错误，继续尝试其他关键词
+		}
 
-	if cfg.Debug {
-		log.Printf("📦 获取到 %d 个脚本", len(result.Data.Data))
+		var result struct {
+			Code int `json:"code"`
+			Data struct {
+				Data  []ScriptInfo `json:"data"`
+				Total int          `json:"total"`
+			} `json:"data"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			log.Printf("❌ 解码失败（%s）: %v", kw, err)
+			continue
+		}
+
 		for _, s := range result.Data.Data {
+			if !seen[s.ID] {
+				allScripts = append(allScripts, s)
+				seen[s.ID] = true
+			}
+		}
+	}
+
+	if cfg.Debug {
+		log.Printf("📦 总共获取到 %d 个脚本（关键词: %v）", len(allScripts), keywords)
+		for _, s := range allScripts {
 			log.Printf("🔧 脚本: id=%d name=%s command=%s", s.ID, s.Name, s.Command)
 		}
 	}
 
-	return result.Data.Data, nil
+	return allScripts, nil
 }
-  
+
 func RunCrons(cfg *utils.Config, scripts []ScriptInfo) error {
 	token, err := GetQLToken(cfg)
 	if err != nil {
