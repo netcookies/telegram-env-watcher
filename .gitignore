@@ -1,4 +1,5 @@
 ql_notify_buffer.json
+ql_daily_stats_*.json
 session.json
 config.json
 # Logs

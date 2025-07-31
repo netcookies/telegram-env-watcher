@@ -35,6 +35,42 @@ type ScriptInfo struct {
 
 var notifyCacheFile = "./ql_notify_buffer.json"
 
+// 每日脚本统计文件名（含日期）
+func getStatsFile() string {
+	return fmt.Sprintf("./ql_daily_stats_%s.json", time.Now().Format("2006-01-02"))
+}
+
+type DailyStats struct {
+	Total   int      `json:"total"`
+	Success int      `json:"success"`
+	Fail    int      `json:"fail"`
+	Errors  []string `json:"errors"`
+}
+
+func readDailyStats() (*DailyStats, error) {
+	file := getStatsFile()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &DailyStats{}, nil // 文件不存在返回默认结构
+		}
+		return nil, err
+	}
+	var stats DailyStats
+	if err := json.Unmarshal(data, &stats); err != nil {
+		return nil, err
+	}
+	return &stats, nil
+}
+
+func writeDailyStats(stats *DailyStats) error {
+	data, err := json.MarshalIndent(stats, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(getStatsFile(), data, 0644)
+}
+
 type NotifyEntry struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
@@ -299,6 +335,11 @@ func SearchCrons(cfg *utils.Config, keyword string) ([]ScriptInfo, error) {
 }
 
 func RunCrons(cfg *utils.Config, scripts []ScriptInfo) error {
+	// 更新每日统计：总次数
+	stats, _ := readDailyStats()
+	stats.Total += len(scripts)
+	_ = writeDailyStats(stats)
+
 	token, err := GetQLToken(cfg)
 	if err != nil {
 		return err
@@ -337,8 +378,20 @@ func RunCrons(cfg *utils.Config, scripts []ScriptInfo) error {
 
 	respBody, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode >= 300 {
+		// 统计失败
+		stats, _ := readDailyStats()
+		stats.Fail += len(scripts)
+		stats.Errors = append(stats.Errors, string(respBody))
+		_ = writeDailyStats(stats)
+		// 实时错误推送
+		SendNotifyNowViaQL(cfg, "脚本执行失败", string(respBody))
 		return fmt.Errorf("❌ 执行失败，状态码: %d，响应: %s", resp.StatusCode, string(respBody))
 	}
+
+	// 统计成功
+	stats, _ = readDailyStats()
+	stats.Success += len(scripts)
+	_ = writeDailyStats(stats)
 
 	if cfg.Debug {
 		log.Printf("✅ 执行成功: %s", string(respBody))
@@ -365,6 +418,59 @@ func SendNotifyViaQL(cfg *utils.Config, title string, body string) error {
 	// 保存到文件
 	data, _ := json.MarshalIndent(buffer, "", "  ")
 	return os.WriteFile(notifyCacheFile, data, 0644)
+}
+
+// 每天9:10定时推送统计并清理文件
+// 启动时主动推送一次每日统计（不清空文件）
+func PushStatsOnce(cfg *utils.Config) {
+	stats, err := readDailyStats()
+	if err != nil {
+		log.Printf("❌ 读取脚本统计失败: %v", err)
+		return
+	}
+	if stats.Total > 0 {
+		msg := fmt.Sprintf("📌【脚本统计】\n🔵 总执行: %d\n✅ 成功: %d\n❌ 失败: %d", stats.Total, stats.Success, stats.Fail)
+		if len(stats.Errors) > 0 {
+			msg += "\n\n🚫 错误信息:\n➖ " + strings.Join(stats.Errors, "\n➖ ")
+		}
+		if err := SendNotifyNowViaQL(cfg, "📥 每日脚本执行统计", msg); err != nil {
+			log.Printf("❌ 推送脚本统计失败: %v", err)
+		}
+	}
+}
+
+func StartStatsScheduler(cfg *utils.Config) {
+	go func() {
+		for {
+			now := time.Now()
+			// 计算下一次9:10
+			next := time.Date(now.Year(), now.Month(), now.Day(), 9, 10, 0, 0, now.Location())
+			if now.After(next) {
+				next = next.Add(24 * time.Hour)
+			}
+			dur := time.Until(next)
+			log.Printf("⏳ 等待到下一个9:10: %s", next.Format("2006-01-02 15:04:05"))
+			time.Sleep(dur)
+
+			// 汇总推送
+			stats, err := readDailyStats()
+			if err != nil {
+				log.Printf("❌ 读取脚本统计失败: %v", err)
+				continue
+			}
+			if stats.Total > 0 {
+				msg := fmt.Sprintf("📌【脚本统计】\n🔵 总执行: %d\n✅ 成功: %d\n❌ 失败: %d", stats.Total, stats.Success, stats.Fail)
+				if len(stats.Errors) > 0 {
+					msg += "\n\n🚫 错误信息:\n➖ " + strings.Join(stats.Errors, "\n➖ ")
+				}
+				if err := SendNotifyViaQL(cfg, "📥 每日脚本执行统计", msg); err != nil {
+					log.Printf("❌ 推送脚本统计失败: %v", err)
+				}
+			}
+			// 删除统计文件
+			os.Remove(getStatsFile())
+		}
+	}()
 }
 
 func StartNotifyScheduler(cfg *utils.Config) {

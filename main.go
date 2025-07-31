@@ -95,12 +95,14 @@ func main() {
 
 		log.Printf("🚀 Telegram 已登录，用户ID: %d\n", user.ID)
 		// ✅ 启动时立即 Flush 上次未发出的通知
-		if err := ql.FlushNotifyBuffer(cfg); err != nil {
-			log.Printf("⚠️ 启动时通知缓存发送失败: %v", err)
-		}
+		//if err := ql.FlushNotifyBuffer(cfg); err != nil {
+		//	log.Printf("⚠️ 启动时通知缓存发送失败: %v", err)
+		//}
+		ql.PushStatsOnce(cfg)
 
 		// ✅ 启动定时器，等待整点执行
-		ql.StartNotifyScheduler(cfg)
+		//ql.StartNotifyScheduler(cfg)
+		ql.StartStatsScheduler(cfg)
 		return gaps.Run(ctx, client.API(), user.ID, updates.AuthOptions{})
 	})
 
