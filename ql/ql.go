@@ -37,7 +37,7 @@ var notifyCacheFile = "./ql_notify_buffer.json"
 
 // 每日脚本统计文件名（含日期）
 func getStatsFile() string {
-	return fmt.Sprintf("./ql_daily_stats_%s.json", time.Now().Format("2006-01-02"))
+	return "./ql_daily_stats.json"
 }
 
 type DailyStats struct {
