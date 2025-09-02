@@ -468,7 +468,7 @@ func StartStatsScheduler(cfg *utils.Config) {
 				}
 			}
 			// 删除统计文件
-			os.Remove(getStatsFile())
+			//os.Remove(getStatsFile())
 			os.WriteFile(notifyCacheFile, []byte("[]"), 0644)
 		}
 	}()
