@@ -463,7 +463,7 @@ func StartStatsScheduler(cfg *utils.Config) {
 				if len(stats.Errors) > 0 {
 					msg += "\n\n🚫 错误信息:\n➖ " + strings.Join(stats.Errors, "\n➖ ")
 				}
-				if err := SendNotifyViaQL(cfg, "📥 每日脚本执行统计", msg); err != nil {
+				if err := SendNotifyNowViaQL(cfg, "📥 每日脚本执行统计", msg); err != nil {
 					log.Printf("❌ 推送脚本统计失败: %v", err)
 				}
 			}
